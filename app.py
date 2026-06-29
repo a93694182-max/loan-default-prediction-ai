@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import shap
 
 st.set_page_config(
     page_title="신용대출 연체 위험 예측",
@@ -10,8 +11,103 @@ st.set_page_config(
 
 model = joblib.load("loan_model.pkl")
 
-st.title("🏦 신용대출 연체 위험 예측 AI")
-st.write("고객 정보를 입력하면 연체 위험 여부를 예측합니다.")
+classifier = model.named_steps["classifier"]
+imputer = model.named_steps["imputer"]
+
+FEATURE_NAMES = [
+    "AMT_INCOME_TOTAL",
+    "AMT_CREDIT",
+    "AMT_ANNUITY",
+    "AMT_GOODS_PRICE",
+    "CNT_CHILDREN",
+    "CNT_FAM_MEMBERS",
+    "DAYS_BIRTH",
+    "DAYS_EMPLOYED",
+    "DAYS_REGISTRATION",
+    "DAYS_ID_PUBLISH",
+    "REGION_POPULATION_RELATIVE",
+    "REGION_RATING_CLIENT",
+    "REGION_RATING_CLIENT_W_CITY",
+    "EXT_SOURCE_1",
+    "EXT_SOURCE_2",
+    "EXT_SOURCE_3",
+    "OBS_30_CNT_SOCIAL_CIRCLE",
+    "DEF_30_CNT_SOCIAL_CIRCLE",
+    "AMT_REQ_CREDIT_BUREAU_DAY",
+    "AMT_REQ_CREDIT_BUREAU_WEEK",
+    "AMT_REQ_CREDIT_BUREAU_MON",
+    "AMT_REQ_CREDIT_BUREAU_QRT",
+    "AMT_REQ_CREDIT_BUREAU_YEAR"
+]
+
+
+
+logo_col, title_col = st.columns([1.5, 6], vertical_alignment="center")
+
+with logo_col:
+    st.image(
+        "images/logo.png",
+        width=1000
+    )
+
+with title_col:
+    st.markdown("""
+### AI 신용대출 연체 위험 예측
+
+##### XGBoost 기반 머신러닝 모델을 활용하여 고객의 연체 위험을 예측합니다.
+""")
+
+
+
+with st.sidebar:
+
+
+    st.markdown("# 🛡️ Loan Risk AI")
+    st.caption("신용대출 연체 위험 예측 시스템")
+
+    st.divider()
+
+    st.markdown("# 📊 모델 정보")
+
+    st.markdown("""
+<span style="font-size:19px; font-weight:bold;">모델</span>
+
+<span style="font-size:16px;">XGBoost</span>
+
+<br>
+
+<span style="font-size:19px; font-weight:bold;">ROC-AUC</span>
+
+<span style="font-size:16px;">0.7522</span>
+""", unsafe_allow_html=True)
+    
+    st.divider()
+
+    st.markdown("# 📈 데이터 정보")
+
+    st.markdown("""
+<span style="font-size:19px; font-weight:bold;">데이터</span>
+
+<span style="font-size:16px;">307,511건</span>
+
+<br>
+
+<span style="font-size:19px; font-weight:bold;">변수</span>
+
+<span style="font-size:16px;">122개</span>
+""", unsafe_allow_html=True)
+
+    st.divider()
+
+    st.markdown("# 🧑🏻‍💻 개발자")
+
+
+    st.write("오재원")
+
+    st.divider()
+
+    st.caption("Version 1.0")
+
 
 col1, col2 = st.columns(2)
 
@@ -59,7 +155,10 @@ with col2:
         value=5
     )
 
-if st.button("🚀 연체 위험 예측하기", use_container_width=True):
+if st.button(
+    "🔍 연체 위험 분석 시작",
+    use_container_width=True
+):
 
     input_data = pd.DataFrame([{
         "AMT_INCOME_TOTAL": income,
@@ -128,5 +227,97 @@ if st.button("🚀 연체 위험 예측하기", use_container_width=True):
 
     {result_message}
     """)
+    
+    st.divider()
 
+    st.markdown("## 👤 입력 정보")
 
+    left, right = st.columns(2)
+
+    with left:
+        with st.container(border=True):
+
+            st.markdown("### 💰 금융 정보")
+
+            st.markdown(f"""
+    **연소득**
+
+    {income:,.0f} 원
+
+    ---
+
+    **대출금액**
+
+    {credit:,.0f} 원
+
+    ---
+
+    **상품금액**
+
+    {goods_price:,.0f} 원
+
+    ---
+
+    **연간 상환금**
+
+    {annuity:,.0f} 원
+    """)
+
+    with right:
+        with st.container(border=True):
+
+            st.markdown("### 👨🏻 고객 정보")
+
+            st.markdown(f"""
+    **나이**
+
+    {age} 세
+
+    ---
+
+    **근속연수**
+
+    {employment_years} 년
+
+    ---
+
+    **가족 수**
+
+    {family_members} 명
+
+    ---
+
+    **자녀 수**
+
+    {children} 명
+    """)
+
+    st.divider()
+    st.markdown("## 🔎 AI 판단 근거")
+
+    input_imputed = imputer.transform(input_data)
+
+    explainer = shap.TreeExplainer(classifier)
+    shap_values = explainer.shap_values(input_imputed)
+
+    shap_df = pd.DataFrame({
+        "변수": FEATURE_NAMES,
+        "영향도": shap_values[0]
+    })
+
+    shap_df["절대값"] = shap_df["영향도"].abs()
+
+    shap_df = shap_df.sort_values(
+        by="절대값",
+        ascending=False
+    ).head(5)
+
+    st.write("AI가 이번 예측에서 중요하게 본 상위 변수입니다.")
+
+    st.dataframe(
+        shap_df[["변수", "영향도"]]
+    )
+
+    st.bar_chart(
+        shap_df.set_index("변수")["영향도"]
+    )

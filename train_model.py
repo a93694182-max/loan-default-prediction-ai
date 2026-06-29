@@ -14,6 +14,8 @@ from xgboost import XGBClassifier
 from sklearn.metrics import ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 import joblib
+import shap
+
 
 
 
@@ -252,3 +254,34 @@ plt.show()
 joblib.dump(model, "loan_model.pkl")
 
 print("모델 저장 완료")
+
+
+
+
+# SHAP 분석
+
+classifier = model.named_steps["classifier"]
+imputer = model.named_steps["imputer"]
+
+X_test_imputed = imputer.transform(X_test)
+
+# 너무 오래 걸리지 않게 일부만 사용
+X_sample = X_test_imputed[:1000]
+
+explainer = shap.TreeExplainer(classifier)
+shap_values = explainer.shap_values(X_sample)
+
+shap.summary_plot(
+    shap_values,
+    X_sample,
+    feature_names=features,
+    show=False
+)
+
+plt.tight_layout()
+plt.savefig("images/shap_summary.png")
+plt.close()
+
+print("SHAP Summary 이미지 저장 완료")
+
+
