@@ -2,6 +2,37 @@ import streamlit as st
 import pandas as pd
 import joblib
 import shap
+import sqlite3
+from datetime import datetime
+
+
+
+def save_prediction(income, credit, probability, risk_level, prediction):
+    cursor.execute("""
+    INSERT INTO predictions
+    (created_at, income, credit, probability, risk_level, prediction)
+    VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        income,
+        credit,
+        probability,
+        risk_level,
+        prediction
+    ))
+    conn.commit()
+
+def load_predictions():
+    prediction_df = pd.read_sql_query(
+        "SELECT * FROM predictions ORDER BY id DESC",
+        conn
+    )
+    return prediction_df
+
+
+    
+
+
 
 st.set_page_config(
     page_title="신용대출 연체 위험 예측",
@@ -11,8 +42,59 @@ st.set_page_config(
 
 model = joblib.load("loan_model.pkl")
 
+
+
+conn = sqlite3.connect("loan_predictions.db")
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS predictions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT,
+    income REAL,
+    credit REAL,
+    probability REAL,
+    risk_level TEXT,
+    prediction TEXT
+)
+""")
+
+conn.commit()
+
+
+
 classifier = model.named_steps["classifier"]
 imputer = model.named_steps["imputer"]
+
+FEATURE_KOREAN = {
+    "AMT_INCOME_TOTAL": "연소득",
+    "AMT_CREDIT": "대출금액",
+    "AMT_ANNUITY": "연간 상환금",
+    "AMT_GOODS_PRICE": "상품금액",
+    "CNT_CHILDREN": "자녀 수",
+    "CNT_FAM_MEMBERS": "가족 수",
+    "DAYS_BIRTH": "나이",
+    "DAYS_EMPLOYED": "근속연수",
+    "DAYS_REGISTRATION": "가입기간",
+    "DAYS_ID_PUBLISH": "신분정보 갱신일",
+
+    "REGION_POPULATION_RELATIVE": "지역 인구 비율",
+    "REGION_RATING_CLIENT": "지역 신용등급",
+    "REGION_RATING_CLIENT_W_CITY": "도시 신용등급",
+
+    "EXT_SOURCE_1": "외부 신용평가 1",
+    "EXT_SOURCE_2": "외부 신용평가 2",
+    "EXT_SOURCE_3": "외부 신용평가 3",
+
+    "OBS_30_CNT_SOCIAL_CIRCLE": "주변 연체 건수",
+    "DEF_30_CNT_SOCIAL_CIRCLE": "주변 부도 건수",
+
+    "AMT_REQ_CREDIT_BUREAU_DAY": "신용조회(1일)",
+    "AMT_REQ_CREDIT_BUREAU_WEEK": "신용조회(1주)",
+    "AMT_REQ_CREDIT_BUREAU_MON": "신용조회(1개월)",
+    "AMT_REQ_CREDIT_BUREAU_QRT": "신용조회(3개월)",
+    "AMT_REQ_CREDIT_BUREAU_YEAR": "신용조회(1년)"
+}
 
 FEATURE_NAMES = [
     "AMT_INCOME_TOTAL",
@@ -205,6 +287,16 @@ if st.button(
         result_icon = "🟢"
         result_message = "정상 상환 가능성이 높은 고객으로 판단됩니다."
 
+
+    # ⭐ 여기 추가
+    save_prediction(
+        float(income),
+        float(credit),
+        float(probability),
+        risk_level,
+        "연체 위험" if prediction == 1 else "정상 고객"
+    )
+
     st.divider()
     st.markdown("## 📊 예측 결과")
 
@@ -230,69 +322,8 @@ if st.button(
     
     st.divider()
 
-    st.markdown("## 👤 입력 정보")
+    
 
-    left, right = st.columns(2)
-
-    with left:
-        with st.container(border=True):
-
-            st.markdown("### 💰 금융 정보")
-
-            st.markdown(f"""
-    **연소득**
-
-    {income:,.0f} 원
-
-    ---
-
-    **대출금액**
-
-    {credit:,.0f} 원
-
-    ---
-
-    **상품금액**
-
-    {goods_price:,.0f} 원
-
-    ---
-
-    **연간 상환금**
-
-    {annuity:,.0f} 원
-    """)
-
-    with right:
-        with st.container(border=True):
-
-            st.markdown("### 👨🏻 고객 정보")
-
-            st.markdown(f"""
-    **나이**
-
-    {age} 세
-
-    ---
-
-    **근속연수**
-
-    {employment_years} 년
-
-    ---
-
-    **가족 수**
-
-    {family_members} 명
-
-    ---
-
-    **자녀 수**
-
-    {children} 명
-    """)
-
-    st.divider()
     st.markdown("## 🔎 AI 판단 근거")
 
     input_imputed = imputer.transform(input_data)
@@ -312,12 +343,172 @@ if st.button(
         ascending=False
     ).head(5)
 
-    st.write("AI가 이번 예측에서 중요하게 본 상위 변수입니다.")
+    st.write("AI가 이번 예측에서 중요하게 판단한 상위 요인입니다.")
 
-    st.dataframe(
-        shap_df[["변수", "영향도"]]
-    )
+    for _, row in shap_df.iterrows():
+        feature = FEATURE_KOREAN.get(row["변수"], row["변수"])
 
-    st.bar_chart(
-        shap_df.set_index("변수")["영향도"]
-    )
+        if row["영향도"] > 0:
+            st.error(
+                f"🔴 **{feature}**\n\n"
+                "연체 위험을 높이는 방향으로 영향을 주었습니다."
+            )
+        else:
+            st.success(
+                f"🟢 **{feature}**\n\n"
+                "연체 위험을 낮추는 방향으로 영향을 주었습니다."
+            )
+            
+    
+    st.divider()
+
+    with st.expander("👤 입력 정보 보기", expanded=False):
+
+        left, right = st.columns(2)
+
+        with left:
+            with st.container(border=True):
+
+                st.markdown("### 💰 금융 정보")
+
+                st.markdown(f"""
+        **연소득**
+
+        {income:,.0f} 원
+
+        ---
+
+        **대출금액**
+
+        {credit:,.0f} 원
+
+        ---
+
+        **상품금액**
+
+        {goods_price:,.0f} 원
+
+        ---
+
+        **연간 상환금**
+
+        {annuity:,.0f} 원
+        """)
+
+        with right:
+            with st.container(border=True):
+
+                st.markdown("### 👨🏻 고객 정보")
+
+                st.markdown(f"""
+        **나이**
+
+        {age} 세
+
+        ---
+
+        **근속연수**
+
+        {employment_years} 년
+
+        ---
+
+        **가족 수**
+
+        {family_members} 명
+
+        ---
+
+        **자녀 수**
+
+        {children} 명
+        """)
+                
+
+st.divider()
+
+
+st.markdown("## 📋 분석 기록")
+
+prediction_df = load_predictions()
+
+if prediction_df.empty:
+    st.info("아직 저장된 분석 기록이 없습니다.")
+
+else:
+    prediction_df = prediction_df.rename(columns={
+        "created_at": "분석 시간",
+        "income": "연소득",
+        "credit": "대출금액",
+        "probability": "연체 위험 확률",
+        "risk_level": "위험 등급",
+        "prediction": "분석 결과"
+    })
+
+    page_size = 6
+
+    if "history_page" not in st.session_state:
+        st.session_state.history_page = 0
+
+    total_pages = (len(prediction_df) - 1) // page_size + 1
+
+    start = st.session_state.history_page * page_size
+    end = start + page_size
+
+    page_df = prediction_df.iloc[start:end]
+
+    col_prev, col_page, col_next = st.columns([1, 2, 1])
+
+    with col_prev:
+        if st.button("◀ 이전", use_container_width=True):
+            if st.session_state.history_page > 0:
+                st.session_state.history_page -= 1
+                st.rerun()
+
+    with col_page:
+        st.markdown(
+            f"<div style='text-align:center; font-size:18px;'>"
+            f"페이지 {st.session_state.history_page + 1} / {total_pages}"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+
+    with col_next:
+        if st.button("다음 ▶", use_container_width=True):
+            if st.session_state.history_page < total_pages - 1:
+                st.session_state.history_page += 1
+                st.rerun()
+
+    card_cols = st.columns(2)
+
+    for idx, row in page_df.reset_index(drop=True).iterrows():
+        col = card_cols[idx % 2]
+
+        if row["위험 등급"] == "높음":
+            box = col.error
+            icon = "🔴"
+        elif row["위험 등급"] == "보통":
+            box = col.warning
+            icon = "🟡"
+        else:
+            box = col.success
+            icon = "🟢"
+
+        box(f"""
+### {icon} 분석 결과 : {row["분석 결과"]}
+
+**📅 분석 시간**  
+{row["분석 시간"]}
+
+**💰 연소득**  
+{row["연소득"]:,.0f} 원
+
+**🏦 대출금액**  
+{row["대출금액"]:,.0f} 원
+
+**📊 위험도**  
+{row["연체 위험 확률"] * 100:.2f} %
+
+**⚠ 위험등급**  
+{row["위험 등급"]}
+""")
