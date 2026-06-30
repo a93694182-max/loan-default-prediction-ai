@@ -457,27 +457,30 @@ else:
 
     page_df = prediction_df.iloc[start:end]
 
-    col_prev, col_page, col_next = st.columns([1, 2, 1])
+    nav1, nav2, nav3 = st.columns([2.3, 0.8, 2.3])
 
-    with col_prev:
-        if st.button("◀ 이전", use_container_width=True):
-            if st.session_state.history_page > 0:
-                st.session_state.history_page -= 1
-                st.rerun()
+    with nav2:
 
-    with col_page:
         st.markdown(
-            f"<div style='text-align:center; font-size:18px;'>"
+            f"<div style='text-align:center; font-size:16px; margin-bottom:10px;'>"
             f"페이지 {st.session_state.history_page + 1} / {total_pages}"
             f"</div>",
             unsafe_allow_html=True
         )
 
-    with col_next:
-        if st.button("다음 ▶", use_container_width=True):
-            if st.session_state.history_page < total_pages - 1:
-                st.session_state.history_page += 1
-                st.rerun()
+        btn1, btn2 = st.columns(2)
+
+        with btn1:
+            if st.button("◀ 이전"):
+                if st.session_state.history_page > 0:
+                    st.session_state.history_page -= 1
+                    st.rerun()
+
+        with btn2:
+            if st.button("다음 ▶"):
+                if st.session_state.history_page < total_pages - 1:
+                    st.session_state.history_page += 1
+                    st.rerun()
 
     card_cols = st.columns(2)
 
