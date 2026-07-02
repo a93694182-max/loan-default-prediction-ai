@@ -7,6 +7,7 @@ from datetime import datetime
 
 
 
+
 def save_prediction(income, credit, probability, risk_level, prediction):
     cursor.execute("""
     INSERT INTO predictions
@@ -30,7 +31,37 @@ def load_predictions():
     return prediction_df
 
 
+def money_input(label, default):
+
+    text = st.text_input(
+        label,
+        value=f"{default:,}"
+    )
+
+    value = int(text.replace(",", ""))
+
+    formatted = f"{value:,}"
+
+    if formatted != text:
+        st.session_state[label] = formatted
+
+    return value
+
+
+def delete_all_predictions():
+    conn = sqlite3.connect("loan_predictions.db")
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM predictions")
+
+    conn.commit()
+    conn.close()
+
     
+
+
+
+
 
 
 
@@ -65,6 +96,18 @@ details summary p {
     font-size: 22px !important;
     font-weight: bold !important;
 }
+            
+div[data-testid="stDownloadButton"] > button {
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    height: 48px !important;
+}
+
+div[data-testid="stDownloadButton"] > button p {
+    font-size: 20px !important;
+    font-weight: 700 !important;
+}
+            
 </style>
 """, unsafe_allow_html=True)
 
@@ -222,7 +265,7 @@ with center:
 
     with title_col:
 
-        st.markdown("<div style='margin-top:100px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:40px;'></div>", unsafe_allow_html=True)
 
         st.markdown("""
     ### AI 신용대출 연체 위험 예측
@@ -237,50 +280,98 @@ with center:
 
         income = st.number_input(
             "연소득",
-            value=50000000
+            min_value=0,
+            max_value=1000000000,
+            value=50000000,
+            step=1000000
         )
 
         credit = st.number_input(
             "대출금액",
-            value=20000000
+            min_value=0,
+            max_value=1000000000,
+            value=20000000,
+            step=1000000
         )
 
         annuity = st.number_input(
             "연간 상환금",
-            value=3000000
+            min_value=0,
+            max_value=200000000,
+            value=3000000,
+            step=100000
         )
 
         goods_price = st.number_input(
             "상품 금액",
-            value=20000000
+            min_value=0,
+            max_value=1000000000,
+            value=20000000,
+            step=1000000
         )
 
     with col2:
 
         children = st.number_input(
             "자녀 수",
-            value=0
+            min_value=0,
+            max_value=10,
+            value=0,
+            step=1
         )
 
         family_members = st.number_input(
             "가족 수",
-            value=2
+            min_value=1,
+            max_value=20,
+            value=2,
+            step=1
         )
 
         age = st.number_input(
             "나이",
-            value=35
+            min_value=18,
+            max_value=100,
+            value=35,
+            step=1
         )
 
         employment_years = st.number_input(
             "근속 연수",
-            value=5
+            min_value=0,
+            max_value=60,
+            value=5,
+            step=1
         )
+
 
     if st.button(
         "🔍 연체 위험 분석 시작",
         use_container_width=True
     ):
+
+
+        # 입력값 검증
+        warnings = []
+
+        if credit > income * 10:
+            warnings.append("대출금액이 연소득에 비해 매우 높은 수준입니다.")
+
+        if annuity > income:
+            warnings.append("연간 상환금이 연소득을 초과합니다.")
+
+        if goods_price < credit * 0.5:
+            warnings.append("상품 금액이 대출금액에 비해 매우 낮은 수준입니다.")
+
+        if warnings:
+
+            message = "### ⚠️ 입력값 확인 안내\n\n"
+
+            for w in warnings:
+                message += f"- {w}\n"
+
+            st.warning(message)
+
 
         input_data = pd.DataFrame([{
             "AMT_INCOME_TOTAL": income,
@@ -508,6 +599,26 @@ with center:
 
         prediction_df = load_predictions()
 
+        download_df = prediction_df.rename(columns={
+            "created_at": "분석 시간",
+            "income": "연소득",
+            "credit": "대출금액",
+            "probability": "연체 위험 확률",
+            "risk_level": "위험 등급",
+            "prediction": "분석 결과"
+        })
+
+        download_df["연체 위험 확률"] = (
+            download_df["연체 위험 확률"] * 100
+        ).round(2).astype(str) + "%"
+
+
+        csv = download_df.to_csv(
+            index=False,
+            encoding="utf-8-sig"
+        )
+        
+
         if prediction_df.empty:
             st.info("아직 저장된 분석 기록이 없습니다.")
 
@@ -609,4 +720,51 @@ with center:
                     if st.session_state.history_page < total_pages-1:
                         st.session_state.history_page += 1
                         st.session_state.history_expanded = True
+                        st.rerun()
+
+
+        btn_col1, btn_col2 = st.columns(2)
+
+        with btn_col1:
+
+            st.download_button(
+                label="📥 분석 기록 다운로드",
+                data=csv,
+                file_name="loan_prediction_history.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        with btn_col2:
+
+        
+            if "delete_confirm" not in st.session_state:
+                st.session_state.delete_confirm = False
+
+            if not st.session_state.delete_confirm:
+
+                if st.button(
+                    "🗑 분석 기록 전체 삭제",
+                    use_container_width=True
+                ):
+                    st.session_state.delete_confirm = True
+                    st.rerun()
+
+            else:
+
+                st.warning("정말 모든 분석 기록을 삭제하시겠습니까?")
+
+                confirm1, confirm2 = st.columns(2)
+
+                with confirm1:
+                    if st.button("✅ 삭제", use_container_width=True):
+                        delete_all_predictions()
+                        st.session_state.delete_confirm = False
+                        st.session_state.history_page = 0
+                        st.success("분석 기록이 모두 삭제되었습니다.")
+                        st.rerun()
+
+                with confirm2:
+                    if st.button("취소", use_container_width=True):
+                        st.session_state.delete_confirm = False
                         st.rerun()
